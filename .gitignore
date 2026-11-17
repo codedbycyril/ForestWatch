@@ -1,0 +1,7 @@
+.env
+.env.*
+!.env.example
+forest/
+__pycache__/
+*.py[cod]
+forestwatch.db

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Forest intelligence overview{% endblock %}
+
+{% block content %}
+<section class="hero-panel">
+  <div class="hero-copy">
+    <span class="eyebrow"><span class="status-dot"></span> FOREST INTELLIGENCE · KENYA</span>
+    <h1>Protecting forests.<br><span>Powered by people and data.</span></h1>
+    <p>ForestWatch brings community reports and satellite insights together, helping teams identify and respond to threats sooner.</p>
+    <div class="hero-actions">
+      <a class="button button-primary" href="/report">Report an incident <span aria-hidden="true">→</span></a>
+      <a class="button button-quiet" href="/architecture">Explore the approach</a>
+    </div>
+  </div>
+  <div class="hero-art" aria-hidden="true">
+    <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+    <div class="canopy canopy-back"></div><div class="canopy canopy-mid"></div><div class="canopy canopy-front"></div>
+    <div class="art-caption"><span class="status-dot"></span> Community-led · Satellite-informed</div>
+  </div>
+</section>
+
+<section class="section-block" aria-labelledby="impact-title">
+  <div class="section-heading">
+    <div><span class="eyebrow">AT A GLANCE</span><h2 id="impact-title">A clearer view of forest activity</h2></div>
+    <span class="live-label"><span class="status-dot"></span> Live platform data</span>
+  </div>
+  <div id="stats" class="stats-grid" aria-live="polite"></div>
+</section>
+
+<section class="section-block map-section" aria-labelledby="map-title">
+  <div class="section-heading">
+    <div><span class="eyebrow">FIELD OVERVIEW</span><h2 id="map-title">Monitoring across Kenya</h2><p class="section-intro">Explore monitored forest areas and approximate community report locations.</p></div>
+    <div class="map-legend"><span><i class="legend-forest"></i> Monitored forest</span><span><i class="legend-report"></i> Incident report</span></div>
+  </div>
+  <div class="map-frame"><div id="map" class="map-canvas" aria-label="Map of monitored forests and incident reports"></div></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function loadOverview() {
+    const stats = await api("/api/telemetry/stats");
+    const cards = [
+      ["Reports received", stats.total_reports, "Community signal"],
+      ["High-priority", stats.critical, "Needs close attention"],
+      ["Alerts dispatched", stats.dispatched, "Ranger follow-up"],
+      ["Forests monitored", stats.forests_monitored, "Across Kenya"],
+    ];
+    document.getElementById("stats").innerHTML = cards
+      .map(([label, value, note], index) => `
+        <article class="stat-card">
+          <div class="stat-topline"><span>${label}</span><span class="stat-index">0${index + 1}</span></div>
+          <strong class="stat-value">${value}</strong>
+          <span class="stat-note"><span class="status-dot"></span>${note}</span>
+        </article>`)
+      .join("");
+
+    const map = makeMap("map");
+    const forests = await api("/api/forests");
+    forests.forEach(forest => {
+      L.circle([forest.lat, forest.lon], {
+        radius: forest.radius_km * 1000,
+        color: "#4b805e",
+        weight: 1.5,
+        fillColor: "#8ab591",
+        fillOpacity: 0.2,
+      })
+        .addTo(map)
+        .bindPopup(`<b>${forest.name}</b><br>Canopy loss: ${forest.canopy_loss_pct}%`);
+    });
+
+    const incidents = await api("/api/map/incidents");
+    incidents.forEach(incident => {
+      L.circleMarker([incident.lat, incident.lon], {
+        color: COLORS[incident.risk_level],
+        fillColor: COLORS[incident.risk_level],
+        fillOpacity: 0.85,
+        weight: 2,
+        radius: 7,
+      })
+        .addTo(map)
+        .bindPopup(`Community report · ${incident.risk_level} risk`);
+    });
+  }
+
+  loadOverview();
+</script>
+{% endblock %}

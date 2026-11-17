@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}How ForestWatch works{% endblock %}
+
+{% block content %}
+<section class="page-heading">
+  <span class="eyebrow">A CONNECTED APPROACH</span>
+  <h1>From local signal to informed action.</h1>
+  <p>ForestWatch brings people, satellite observations, and ranger teams into one practical response loop.</p>
+</section>
+
+<section class="process-grid" aria-label="ForestWatch response process">
+  <article class="process-card"><span class="process-number">01</span><span class="process-icon" aria-hidden="true">⌖</span>
+    <h2>Community reports</h2><p>Citizens share suspected activity through a simple web form or SMS, including a location and optional details.</p><span class="process-tag">WEB · SMS</span>
+  </article>
+  <article class="process-card"><span class="process-number">02</span><span class="process-icon" aria-hidden="true">◉</span>
+    <h2>Satellite context</h2><p>The system finds the nearest forest and checks its satellite vegetation change (NDVI) for additional context.</p><span class="process-tag">FOREST · NDVI</span>
+  </article>
+  <article class="process-card"><span class="process-number">03</span><span class="process-icon" aria-hidden="true">⌁</span>
+    <h2>Risk prioritization</h2><p>A risk score from 0 to 100 combines satellite loss, activity type, distance, and nearby reports.</p><span class="process-tag">SIGNAL · SCORE</span>
+  </article>
+  <article class="process-card"><span class="process-number">04</span><span class="process-icon" aria-hidden="true">↗</span>
+    <h2>Ranger response</h2><p>Rangers review a prioritized queue and can send alerts by SMS in English or Kiswahili.</p><span class="process-tag">REVIEW · RESPOND</span>
+  </article>
+</section>
+
+<section class="panel architecture-panel">
+  <div class="section-heading architecture-heading">
+    <div><span class="eyebrow">THE PLATFORM UNDER THE HOOD</span><h2>Built on practical foundations</h2><p class="section-intro">The core technologies that connect field information to coordinated action.</p></div>
+    <span class="architecture-mark" aria-hidden="true">FW<span> / </span>01</span>
+  </div>
+  <div class="architecture-table-wrap">
+    <table class="data-table architecture-table">
+      <thead><tr><th scope="col">Foundation</th><th scope="col">How it appears in ForestWatch</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Hardware &amp; software</th><td>Satellite sensors, servers, and phones provide the hardware; the Flask app, SQLite, and browser provide the software layers.</td></tr>
+        <tr><th scope="row">Databases</th><td>SQLite tables <code>forests</code>, <code>incidents</code>, and <code>dispatches</code> are linked by foreign keys (<code>schema.sql</code>).</td></tr>
+        <tr><th scope="row">Networks</th><td>HTTP/REST connects browser and server, while an SMS gateway calls the inbound webhook.</td></tr>
+        <tr><th scope="row">Data representation</th><td>Satellite pixels are processed as NDVI = (NIR − Red) / (NIR + Red), a vegetation-change indicator.</td></tr>
+        <tr><th scope="row">Input &amp; output</th><td>Inputs include satellite sensors, keyboards, touchscreens, and feature-phone keypads. Outputs include the ranger dashboard and SMS alerts.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

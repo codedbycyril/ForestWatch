@@ -1,0 +1,196 @@
+{# templates/lab.html : interactive demo of satellite detection #}
+{% extends "base.html" %}
+
+{% block title %}Satellite Lab{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-1">Satellite Lab: how deforestation is detected</h1>
+<p class="mb-4 text-stone-600">
+  Each square is one satellite pixel. Walk through the three steps, and click any square to inspect it.
+</p>
+
+<div class="grid md:grid-cols-2 gap-4">
+
+  <canvas id="grid" width="480" height="480"
+          class="rounded shadow bg-white max-w-full cursor-pointer"></canvas>
+
+  <div class="space-y-3">
+    <!-- Step buttons -->
+    <div class="flex gap-2 flex-wrap">
+      <button class="step-btn border px-3 py-1 rounded" data-step="1">1. Raw data</button>
+      <button class="step-btn border px-3 py-1 rounded" data-step="2">2. Calculate NDVI</button>
+      <button class="step-btn border px-3 py-1 rounded" data-step="3">3. Detect change</button>
+    </div>
+
+    <!-- Before / After toggle (used in steps 1 and 2) -->
+    <div id="scan-toggle" class="flex gap-2 items-center text-sm">
+      <span>Scan:</span>
+      <button class="scan-btn border px-3 py-1 rounded" data-scan="before">Earlier scan</button>
+      <button class="scan-btn border px-3 py-1 rounded" data-scan="after">Latest scan</button>
+    </div>
+
+    <div id="explain" class="bg-white rounded shadow p-3 text-sm"></div>
+    <div id="inspector" class="bg-white rounded shadow p-3 text-sm font-mono"></div>
+    <div id="summary" class="bg-green-50 border border-green-200 rounded p-3 text-sm"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const N = 12;          // grid is N x N pixels
+  const CELL = 40;       // each pixel is drawn 40 x 40
+  const canvas = document.getElementById("grid");
+  const ctx = canvas.getContext("2d");
+
+  // ---------- 1. Make the fake satellite data ----------
+  // A repeatable "random" number from three inputs (same result every time).
+  function rand(i, j, k) {
+    const x = Math.sin(i * 127.1 + j * 311.7 + k * 74.7) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  // Each pixel stores NIR and Red as whole numbers 0-255 (8-bit values),
+  // for the earlier scan ("before") and the latest scan ("after").
+  const pixels = [];
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      // A blob around (8, 4) has been cleared between the two scans.
+      const cleared = Math.hypot(x - 8, y - 4) < 3.2 + (rand(x, y, 9) - 0.5);
+
+      const before = {
+        nir: 105 + Math.floor(rand(x, y, 1) * 17),
+        red: 12 + Math.floor(rand(x, y, 2) * 8),
+      };
+      const after = cleared
+        ? { nir: 45 + Math.floor(rand(x, y, 3) * 17), red: 40 + Math.floor(rand(x, y, 4) * 12) }
+        : { nir: before.nir + Math.floor(rand(x, y, 5) * 5) - 2,
+            red: before.red + Math.floor(rand(x, y, 6) * 3) - 1 };
+
+      pixels.push({ x, y, before, after });
+    }
+  }
+
+  // ---------- 2. The maths ----------
+  const ndvi = band => (band.nir - band.red) / (band.nir + band.red);
+  const toBinary = n => n.toString(2).padStart(8, "0");   // 117 -> "01110101"
+
+  // Brown (bare ground) to green (healthy forest).
+  function ndviColor(v) {
+    const t = Math.max(0, Math.min(v / 0.8, 1));
+    return `hsl(${30 + t * 90}, 60%, 40%)`;
+  }
+
+  const CHANGE_LIMIT = 0.2;   // a pixel "changed" if NDVI fell by more than this
+  const changed = p => ndvi(p.before) - ndvi(p.after) > CHANGE_LIMIT;
+
+  // ---------- 3. Page state ----------
+  let step = 1;
+  let scan = "before";
+  let selected = null;
+
+  const EXPLAIN = {
+    1: "<b>Step 1: raw data.</b> A satellite sensor measures light and stores each pixel as numbers. " +
+       "Each square shows the near-infrared (NIR) value, from 0 to 255 (8 bits). Click one to see it in binary.",
+    2: "<b>Step 2: NDVI.</b> NDVI = (NIR − Red) / (NIR + Red). Healthy leaves reflect lots of NIR and absorb red, " +
+       "so green means dense vegetation and brown means bare ground. Switch scans to compare.",
+    3: "<b>Step 3: change detection.</b> We subtract the latest NDVI from the earlier NDVI. " +
+       "Red squares lost vegetation. The share of red squares is the canopy loss our risk model uses.",
+  };
+
+  // ---------- 4. Drawing ----------
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.font = "11px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    pixels.forEach(p => {
+      const px = p.x * CELL, py = p.y * CELL;
+      const band = p[scan];
+      let label = "";
+
+      if (step === 1) {
+        // grey shade = NIR brightness
+        ctx.fillStyle = `rgb(${band.nir}, ${band.nir}, ${band.nir})`;
+        label = band.nir;
+      } else if (step === 2) {
+        ctx.fillStyle = ndviColor(ndvi(band));
+        label = ndvi(band).toFixed(2);
+      } else {
+        ctx.fillStyle = changed(p) ? "#dc2626" : ndviColor(ndvi(p.after));
+        label = changed(p) ? "!" : "";
+      }
+
+      ctx.fillRect(px, py, CELL, CELL);
+      ctx.fillStyle = (step === 1 && band.nir > 140) ? "#000" : "#fff";
+      ctx.fillText(label, px + CELL / 2, py + CELL / 2);
+      ctx.strokeStyle = "rgba(0,0,0,0.25)";
+      ctx.strokeRect(px, py, CELL, CELL);
+    });
+
+    if (selected) {   // yellow outline on the clicked pixel
+      ctx.strokeStyle = "#facc15";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(selected.x * CELL + 1, selected.y * CELL + 1, CELL - 2, CELL - 2);
+      ctx.lineWidth = 1;
+    }
+  }
+
+  // ---------- 5. Side panels ----------
+  function showInspector() {
+    const box = document.getElementById("inspector");
+    if (!selected) { box.textContent = "Click a square to inspect it."; return; }
+
+    const line = (name, b) =>
+      `<div><b>${name}</b>: NIR ${b.nir} = ${toBinary(b.nir)} | Red ${b.red} = ${toBinary(b.red)}<br>` +
+      `NDVI = (${b.nir} − ${b.red}) / (${b.nir} + ${b.red}) = ${ndvi(b).toFixed(2)}</div>`;
+
+    box.innerHTML = `Pixel (${selected.x}, ${selected.y})<br>` +
+      (step === 3 ? line("Earlier", selected.before) + line("Latest", selected.after)
+                  : line(scan === "before" ? "Earlier" : "Latest", selected[scan]));
+  }
+
+  function showSummary() {
+    const mean = key => pixels.reduce((sum, p) => sum + ndvi(p[key]), 0) / pixels.length;
+    const before = mean("before"), after = mean("after");
+    const count = pixels.filter(changed).length;
+    document.getElementById("summary").innerHTML =
+      `<b>Result for this forest patch</b><br>` +
+      `Average NDVI: ${before.toFixed(2)} → ${after.toFixed(2)} ` +
+      `(${((before - after) / before * 100).toFixed(1)}% drop)<br>` +
+      `Changed pixels: ${count} of ${pixels.length} (${(count / pixels.length * 100).toFixed(1)}%)`;
+  }
+
+  function refresh() {
+    document.getElementById("explain").innerHTML = EXPLAIN[step];
+    document.getElementById("scan-toggle").style.display = step === 3 ? "none" : "flex";
+    document.querySelectorAll(".step-btn").forEach(b =>
+      b.classList.toggle("bg-green-800", Number(b.dataset.step) === step));
+    document.querySelectorAll(".step-btn").forEach(b =>
+      b.classList.toggle("text-white", Number(b.dataset.step) === step));
+    document.querySelectorAll(".scan-btn").forEach(b =>
+      b.classList.toggle("bg-stone-200", b.dataset.scan === scan));
+    draw();
+    showInspector();
+    showSummary();
+  }
+
+  // ---------- 6. Events ----------
+  document.querySelectorAll(".step-btn").forEach(b =>
+    b.onclick = () => { step = Number(b.dataset.step); refresh(); });
+  document.querySelectorAll(".scan-btn").forEach(b =>
+    b.onclick = () => { scan = b.dataset.scan; refresh(); });
+
+  canvas.onclick = event => {
+    // Convert the click position to canvas pixels (the canvas may be scaled on small screens).
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor((event.clientX - rect.left) * canvas.width / rect.width / CELL);
+    const y = Math.floor((event.clientY - rect.top) * canvas.height / rect.height / CELL);
+    selected = pixels.find(p => p.x === x && p.y === y);
+    refresh();
+  };
+
+  refresh();
+</script>
+{% endblock %}

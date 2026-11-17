@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}Ranger dashboard{% endblock %}
+
+{% block content %}
+<section class="page-heading heading-with-action">
+  <div><span class="eyebrow">FIELD OPERATIONS</span><h1>Ranger triage queue</h1>
+    <p>Every report comes from someone who cares about their local forest. Review the most urgent ones first.</p></div>
+  <div class="dashboard-actions">
+    <span class="signed-in-label"><span class="status-dot"></span> Ranger access</span>
+    <a class="button button-outline" href="/report">＋ Share a report</a>
+    <form action="/ranger/logout" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="button button-text" type="submit">Sign out</button>
+    </form>
+  </div>
+</section>
+
+<section class="panel queue-panel">
+  <div class="queue-toolbar">
+    <div><span class="eyebrow">PRIORITIZED RESPONSE</span><h2>Reports to review</h2></div>
+    <span id="queue-count" class="queue-count">Loading queue…</span>
+  </div>
+  <div id="queue-feedback" class="queue-feedback" role="status" hidden></div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr>
+        <th scope="col">Risk score</th><th scope="col">Forest</th><th scope="col">Activity</th>
+        <th scope="col">Canopy loss</th><th scope="col">Source</th><th scope="col">Status</th>
+        <th scope="col">Actions</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div id="empty-queue" class="empty-state" hidden>
+    <span class="empty-icon" aria-hidden="true">✓</span><strong>All caught up</strong>
+    <span>New reports will appear here for ranger review.</span>
+  </div>
+</section>
+
+<section id="alert-panel" class="panel alert-panel" hidden>
+  <div class="queue-toolbar"><div><span class="eyebrow">DISPATCH ACTIVITY</span><h2>Recent ranger alerts</h2></div></div>
+  <pre id="alert-log" class="alert-log" aria-live="polite"></pre>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const rowsBody = document.getElementById("rows");
+  const alertLog = document.getElementById("alert-log");
+  const queueFeedback = document.getElementById("queue-feedback");
+
+  function showQueueFeedback(message) {
+    queueFeedback.textContent = message;
+    queueFeedback.hidden = !message;
+  }
+
+  async function loadQueue() {
+    showQueueFeedback("");
+    try {
+      const queue = await api("/api/triage/queue");
+      document.getElementById("queue-count").textContent = `${queue.length} ${queue.length === 1 ? "report" : "reports"}`;
+      document.getElementById("empty-queue").hidden = queue.length > 0;
+      rowsBody.innerHTML = queue.map(item => `
+        <tr>
+          <td><span class="risk-cell">${badge(item.risk_level)}<strong>${item.risk_score}<small>/100</small></strong></span></td>
+          <td class="table-primary">${item.forest}</td>
+          <td>${activityLabel(item.activity)}</td>
+          <td>${item.canopy_loss_pct}%</td>
+          <td>${channelLabel(item.channel)}</td>
+          <td><span class="status-tag">${item.status}</span></td>
+          <td><div class="table-actions">
+            <button onclick="setStatus(${item.id}, 'verified')" class="button button-small button-outline">Verify</button>
+            <button onclick="sendAlert(${item.id}, 'en')" class="button button-small button-primary" aria-label="Send English SMS alert">SMS · EN</button>
+            <button onclick="sendAlert(${item.id}, 'sw')" class="button button-small button-primary" aria-label="Send Kiswahili SMS alert">SMS · SW</button>
+            <button onclick="setStatus(${item.id}, 'dismissed')" class="button button-small button-text">Dismiss</button>
+          </div></td>
+        </tr>`).join("");
+    } catch (error) {
+      if (error.status === 401) {
+        window.location.assign("/ranger/login");
+        return;
+      }
+      console.error("Could not load ranger reports.", error);
+      document.getElementById("queue-count").textContent = "Unavailable";
+      document.getElementById("empty-queue").hidden = true;
+      showQueueFeedback("We couldn't load the reports. Please refresh and try again.");
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 7;
+      cell.className = "queue-error";
+      cell.textContent = "Report queue unavailable.";
+      row.append(cell);
+      rowsBody.replaceChildren(row);
+    }
+  }
+
+  function activityLabel(activity) {
+    const labels = {
+      logging: "Illegal logging",
+      charcoal: "Charcoal burning",
+      fire: "Fire",
+      clearing: "Land clearing",
+      other: "Other activity",
+    };
+    return labels[activity] || "Other activity";
+  }
+
+  function channelLabel(channel) {
+    return channel === "sms" ? "SMS" : "Web";
+  }
+
+  async function setStatus(id, status) {
+    try {
+      await api(`/api/triage/${id}`, "PATCH", { status: status });
+      await loadQueue();
+    } catch (error) {
+      if (error.status === 401) {
+        window.location.assign("/ranger/login");
+        return;
+      }
+      console.error("Could not update the report status.", error);
+      showQueueFeedback("We couldn't update that report. Please refresh and try again.");
+    }
+  }
+
+  async function sendAlert(id, language) {
+    try {
+      const reply = await api(`/api/dispatch/${id}`, "POST", { language: language });
+      document.getElementById("alert-panel").hidden = false;
+      alertLog.textContent = `[${reply.delivery}] ${reply.message}\n` + alertLog.textContent;
+      await loadQueue();
+    } catch (error) {
+      if (error.status === 401) {
+        window.location.assign("/ranger/login");
+        return;
+      }
+      console.error("Could not dispatch the ranger alert.", error);
+      showQueueFeedback("We couldn't send that alert. Please try again.");
+    }
+  }
+
+  loadQueue();
+</script>
+{% endblock %}

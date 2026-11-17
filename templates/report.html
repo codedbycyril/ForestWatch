@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Report an incident{% endblock %}
+
+{% block content %}
+<section class="page-heading">
+  <span class="eyebrow">COMMUNITY REPORTING</span>
+  <h1>Help protect a forest near you.</h1>
+  <p>You know your community best. Tell us what you noticed and where it happened; a ranger can review it alongside forest data.</p>
+</section>
+
+<div class="report-layout">
+  <section class="panel map-panel">
+    <div class="panel-heading">
+      <div><span class="step-label">STEP 01</span><h2>Where did it happen?</h2></div>
+      <span class="map-hint"><span class="status-dot"></span> Tap the map to drop a pin</span>
+    </div>
+    <div id="map" class="map-canvas report-map" aria-label="Click to select an incident location"></div>
+    <div class="map-coordinates"><span class="coordinate-icon" aria-hidden="true">⌖</span><span>Precise location helps rangers assess the report</span></div>
+  </section>
+
+  <section class="panel form-panel">
+    <div class="panel-heading">
+      <div><span class="step-label">STEP 02</span><h2>What did you notice?</h2></div>
+    </div>
+    <form id="report-form" class="report-form">
+      <label for="activity">What kind of activity?</label>
+      <select id="activity">
+        <option value="logging">Illegal logging</option>
+        <option value="charcoal">Charcoal burning</option>
+        <option value="fire">Fire</option>
+        <option value="clearing">Land clearing</option>
+        <option value="other">Other activity</option>
+      </select>
+
+      <div class="field-row">
+        <div><label for="lat">Latitude</label><input id="lat" placeholder="Select on map" inputmode="decimal" readonly></div>
+        <div><label for="lon">Longitude</label><input id="lon" placeholder="Select on map" inputmode="decimal" readonly></div>
+      </div>
+
+      <label for="phone">Phone number <span class="optional">(optional)</span></label>
+      <input id="phone" type="tel" placeholder="+254 7XX XXX XXX" autocomplete="tel">
+
+      <label for="description">Anything else we should know? <span class="optional">(optional)</span></label>
+      <textarea id="description" rows="3" placeholder="Share any details that could help a ranger follow up."></textarea>
+
+      <button id="submit-btn" class="button button-primary submit-button" type="submit">Send report <span aria-hidden="true">→</span></button>
+      <div id="result" class="form-result" aria-live="polite"></div>
+      <div class="sms-note">
+        <span class="sms-icon" aria-hidden="true">SMS</span>
+        {% if config.SMS_SHORTCODE %}
+          <p><strong>No smartphone?</strong> Send <code>LOG logging -0.58 35.55</code> to <code>{{ config.SMS_SHORTCODE }}</code>.</p>
+        {% else %}
+          <p><strong>SMS reporting is not set up yet.</strong> Please use this form for now.</p>
+        {% endif %}
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const latInput = document.getElementById("lat");
+  const lonInput = document.getElementById("lon");
+  const resultBox = document.getElementById("result");
+  const map = makeMap("map");
+  let pin = null;
+
+  map.on("click", event => {
+    latInput.value = event.latlng.lat.toFixed(4);
+    lonInput.value = event.latlng.lng.toFixed(4);
+    resultBox.textContent = "";
+    resultBox.className = "form-result";
+    if (pin) pin.remove();
+    pin = L.marker(event.latlng).addTo(map);
+  });
+
+  document.getElementById("report-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const submitButton = document.getElementById("submit-btn");
+    if (!latInput.value || !lonInput.value) {
+      resultBox.className = "form-result result-error";
+      resultBox.textContent = "Please tap the map to show us where you saw the activity.";
+      return;
+    }
+    submitButton.disabled = true;
+    submitButton.textContent = "Submitting…";
+    try {
+      const reply = await api("/api/incidents", "POST", {
+        activity: document.getElementById("activity").value,
+        lat: latInput.value,
+        lon: lonInput.value,
+        phone: document.getElementById("phone").value,
+        description: document.getElementById("description").value,
+      });
+
+      if (reply.error) {
+        resultBox.className = "form-result result-error";
+        resultBox.textContent = reply.error;
+      } else {
+        resultBox.className = "form-result result-success";
+        resultBox.innerHTML =
+          `Thank you. Matched to <strong>${reply.forest}</strong> (satellite canopy loss ${reply.canopy_loss_pct}%). Risk ${badge(reply.risk_level)} ${reply.risk_score}/100`;
+      }
+    } catch (error) {
+      resultBox.className = "form-result result-error";
+      resultBox.textContent = "We couldn't submit your report. Please try again.";
+    } finally {
+      submitButton.disabled = false;
+      submitButton.innerHTML = 'Send report <span aria-hidden="true">→</span>';
+    }
+  });
+</script>
+{% endblock %}
